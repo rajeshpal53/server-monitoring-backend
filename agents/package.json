@@ -1,0 +1,13 @@
+{
+  "name": "wertone-agent",
+  "version": "1.0.0",
+  "description": "Server & PM2 monitoring agents for Wertone Monitor",
+  "type": "commonjs",
+  "scripts": {
+    "server": "node server-agent.js",
+    "pm2":    "node pm2-agent.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.0"
+  }
+}
