@@ -1,5 +1,6 @@
 const { User } = require('../models/index');
 const { Op } = require('sequelize');
+const bcrypt = require('bcryptjs');
 
 const list = async (req, res) => {
   try {
@@ -38,6 +39,31 @@ const getOne = async (req, res) => {
   }
 };
 
+const create = async (req, res) => {
+  try {
+    const { name, email, password, role, telegram_chat_id } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'name, email and password are required.' });
+    }
+
+    const existing = await User.findOne({ where: { email } });
+    if (existing) return res.status(409).json({ message: 'A user with this email already exists.' });
+
+    const password_hash = await bcrypt.hash(password, 10);
+    const user = await User.create({
+      name,
+      email,
+      password_hash,
+      role: role || 'developer',
+      telegram_chat_id: telegram_chat_id || null,
+    });
+
+    return res.status(201).json({ id: user.id, name: user.name, email: user.email, role: user.role });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
 const update = async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
@@ -64,4 +90,4 @@ const deactivate = async (req, res) => {
   }
 };
 
-module.exports = { list, getOne, update, deactivate };
+module.exports = { list, getOne, create, update, deactivate };
