@@ -35,6 +35,7 @@ app.use('/api/dashboard',                     require('./routes/dashboardRoutes'
 app.use('/api/reports',                       require('./routes/reportRoutes'));
 app.use('/api/mobile',                        require('./routes/mobileRoutes'));
 app.use('/api/analytics',                     require('./routes/analyticsRoutes'));
+app.use('/api/logs',                          require('./routes/logRoutes'));
 
 /* =========================
    CRON JOBS

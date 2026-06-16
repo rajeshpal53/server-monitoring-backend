@@ -67,21 +67,42 @@ const snapshot = async (req, res) => {
 const latest = async (req, res) => {
   try {
     const { server_name } = req.query;
-    const where = {};
+    const where = { recorded_at: { [Op.gte]: new Date(Date.now() - 10 * 60 * 1000) } };
     if (server_name) where.server_name = server_name;
 
-    const lastSnapshot = await PM2Status.max('recorded_at', { where });
-    if (!lastSnapshot) return res.json([]);
-
-    // Include all records within 2 minutes of the latest snapshot
-    const cutoff = new Date(new Date(lastSnapshot).getTime() - 2 * 60 * 1000);
+    // Pull every snapshot from the last 10 minutes (covers all servers regardless
+    // of when each agent last pushed) then keep only the newest row per
+    // (server_name, process_name) so counts aren't inflated by repeated pushes.
     const rows = await PM2Status.findAll({
-      where: { ...where, recorded_at: { [Op.gte]: cutoff } },
+      where,
       include: [{ model: Application, as: 'application', attributes: ['id', 'app_name'], required: false }],
       order: [['recorded_at', 'DESC']],
     });
 
-    return res.json(rows);
+    const seen = new Set();
+    const deduped = [];
+    for (const row of rows) {
+      const key = `${row.server_name}::${row.process_name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(row);
+    }
+
+    return res.json(deduped);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// GET /api/pm2/servers — distinct server names that have ever reported, regardless of current filter
+const listServers = async (req, res) => {
+  try {
+    const rows = await PM2Status.findAll({
+      attributes: [[require('sequelize').fn('DISTINCT', require('sequelize').col('server_name')), 'server_name']],
+      order: [['server_name', 'ASC']],
+      raw: true,
+    });
+    return res.json(rows.map(r => r.server_name));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -104,4 +125,4 @@ const history = async (req, res) => {
   }
 };
 
-module.exports = { snapshot, latest, history };
+module.exports = { snapshot, latest, listServers, history };

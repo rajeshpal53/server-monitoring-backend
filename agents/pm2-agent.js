@@ -15,6 +15,7 @@
  */
 
 const { exec }  = require('child_process');
+const fs        = require('fs');
 const os        = require('os');
 const axios     = require('axios');
 
@@ -23,6 +24,7 @@ const MONITORING_URL = process.env.MONITORING_URL || 'http://localhost:3005';
 const API_KEY        = process.env.API_KEY;
 const SERVER_NAME    = process.env.SERVER_NAME || os.hostname();
 const INTERVAL_MS    = parseInt(process.env.INTERVAL_MS || '60000');
+const LOG_INTERVAL_MS = parseInt(process.env.LOG_INTERVAL_MS || '10000'); // logs pushed more often, for a "live" feel
 // Map PM2 process names → application_id in the Monitoring Service registry
 const APP_MAP        = JSON.parse(process.env.APP_MAP || '{}');
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,6 +45,56 @@ function readPM2List() {
       }
     });
   });
+}
+
+// Reads only the trailing chunk of a (potentially large) log file — avoids
+// loading the whole file into memory just to grab the last few lines.
+function tailFile(filePath, maxLines = 150, maxBytes = 64 * 1024) {
+  if (!filePath) return [];
+  try {
+    const stat = fs.statSync(filePath);
+    const start = Math.max(0, stat.size - maxBytes);
+    const length = stat.size - start;
+    if (length <= 0) return [];
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(filePath, 'r');
+    fs.readSync(fd, buffer, 0, length, start);
+    fs.closeSync(fd);
+    return buffer.toString('utf-8').split('\n').filter(Boolean).slice(-maxLines);
+  } catch {
+    return [];
+  }
+}
+
+async function collectLogs() {
+  let rawList;
+  try {
+    rawList = await readPM2List();
+  } catch (err) {
+    console.error(`[pm2-agent] pm2 jlist failed (logs): ${err.message}`);
+    return;
+  }
+
+  const logs = rawList
+    .filter(p => APP_MAP[p.name])
+    .map(p => ({
+      application_id: APP_MAP[p.name],
+      process_name:   p.name,
+      stdout:          tailFile(p.pm2_env?.pm_out_log_path),
+      stderr:          tailFile(p.pm2_env?.pm_err_log_path),
+    }));
+
+  if (logs.length === 0) return;
+
+  try {
+    await axios.post(
+      `${MONITORING_URL}/api/logs/push`,
+      { server_name: SERVER_NAME, logs },
+      { headers: { 'x-api-key': API_KEY }, timeout: 8000 }
+    );
+  } catch (err) {
+    console.error(`[pm2-agent] Log push failed: ${err.message}`);
+  }
 }
 
 async function collect() {
@@ -82,3 +134,10 @@ async function collect() {
 console.log(`[pm2-agent] Starting. Server: ${SERVER_NAME} → ${MONITORING_URL}`);
 collect();
 setInterval(collect, INTERVAL_MS);
+
+if (Object.keys(APP_MAP).length > 0) {
+  collectLogs();
+  setInterval(collectLogs, LOG_INTERVAL_MS);
+} else {
+  console.log('[pm2-agent] APP_MAP not set — skipping live log push.');
+}
