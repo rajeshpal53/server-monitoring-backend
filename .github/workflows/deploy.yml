@@ -2,8 +2,7 @@ name: Deploy to VPS
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
   workflow_dispatch:
 
@@ -16,8 +15,13 @@ jobs:
 
     steps:
 
-      - name: Deploy over SSH
+      - name: Debug secret
+        run: |
+          echo "Checking VPS_HOST..."
+          echo "${{ secrets.VPS_HOST }}"
 
+
+      - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
 
         with:
@@ -30,35 +34,28 @@ jobs:
 
           port: ${{ secrets.VPS_PORT }}
 
-
           script: |
 
             set -e
 
-
-            echo "📂 Going to project folder"
+            echo "📂 Going to project folder..."
 
             cd ${{ secrets.VPS_APP_PATH }}
 
-
-            echo "📦 Pulling latest code"
+            echo "📦 Pulling latest code..."
 
             git fetch --all
 
             git reset --hard origin/main
 
-
-            echo "📥 Installing dependencies"
+            echo "📥 Installing dependencies..."
 
             npm ci --omit=dev
 
-
-            echo "🔄 Restarting PM2"
+            echo "🔄 Restarting PM2..."
 
             pm2 reload ecosystem.config.js --update-env || pm2 restart ${{ secrets.PM2_APP_NAME }}
 
-
             pm2 save
 
-
-            echo "✅ Deployment successful"
+            echo "✅ Deployment successful!"
